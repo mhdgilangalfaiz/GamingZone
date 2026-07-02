@@ -9,6 +9,7 @@ import 'presentation/providers/console_provider.dart';
 import 'presentation/providers/transaction_provider.dart';
 import 'presentation/providers/member_snack_provider.dart';
 import 'presentation/providers/overtime_provider.dart';
+import 'presentation/providers/auth_provider.dart';
 import 'presentation/screens/splash/splash_screen.dart';
 import 'data/repositories/transaction_repository.dart';
 
@@ -36,7 +37,6 @@ void main() async {
   await DatabaseHelper.instance.database;
 
   // Fix bug: sinkronkan transaksi aktif yang konsolnya sudah available
-  // (mengatasi data tidak sinkron dari edit status manual)
   await TransactionRepository().syncOrphanSessions();
 
   runApp(const GamingZoneApp());
@@ -49,6 +49,7 @@ class GamingZoneApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ConsoleProvider()),
         ChangeNotifierProvider(create: (_) => TransactionProvider()),
         ChangeNotifierProvider(create: (_) => MemberProvider()),

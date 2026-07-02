@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/currency_formatter.dart';
+import '../../../core/database/database_helper.dart';
 import '../../providers/console_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../providers/member_snack_provider.dart';
@@ -12,7 +13,9 @@ import '../../widgets/common/gz_widgets.dart';
 import '../../widgets/cards/console_card.dart';
 import '../snack/snack_screen.dart';
 import '../settings/settings_screen.dart';
+import '../auth/login_screen.dart';
 import '../main_navigation.dart';
+import '../rental/booking_requests_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -22,6 +25,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  int _pendingBookings = 0;
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +40,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context.read<TransactionProvider>().loadDashboard(),
     ]);
     context.read<OvertimeProvider>().startChecking();
+    // Hitung booking masuk dari User yang belum dikonfirmasi
+    final rows = await DatabaseHelper.instance.query(
+      AppConstants.tableTransactions,
+      where: 'status = ?',
+      whereArgs: [AppConstants.statusRequested],
+    );
+    if (mounted) setState(() => _pendingBookings = rows.length);
   }
 
   @override
@@ -77,6 +89,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
       snap: true,
       backgroundColor: AppColors.background,
       actions: [
+        // Tombol notifikasi booking masuk dari User
+        Stack(
+          alignment: Alignment.topRight,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.calendar_today_outlined,
+                  color: AppColors.textSecondary),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const BookingRequestsScreen()),
+                );
+                _load(); // refresh badge setelah kembali
+              },
+            ),
+            if (_pendingBookings > 0)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                      color: AppColors.warning, shape: BoxShape.circle),
+                  child: Text(
+                    '$_pendingBookings',
+                    style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.black),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        IconButton(
+          icon: const Icon(Icons.person_outline,
+              color: AppColors.textSecondary),
+          tooltip: 'Portal Pelanggan',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+          ),
+        ),
         IconButton(
           icon: const Icon(Icons.settings_outlined,
               color: AppColors.textSecondary),

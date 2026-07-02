@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../constants/app_constants.dart';
+import '../utils/password_hasher.dart';
 
 class DatabaseHelper {
   DatabaseHelper._();
@@ -36,7 +37,10 @@ class DatabaseHelper {
       await txn.execute(_createTransactionItemsTable);
       await txn.execute(_createSettingsTable);
       await txn.execute(_createMemberPointsTable);
+      await txn.execute(_createUsersTable);
+      await txn.execute(_createSnackOrdersTable);
       await _seedInitialData(txn);
+      await _seedDefaultUsers(txn);
     });
   }
 
@@ -60,6 +64,16 @@ class DatabaseHelper {
         for (final c in _seedConsoles) {
           await txn.insert(AppConstants.tableConsoles, c);
         }
+      });
+    }
+
+    if (oldVersion < 3) {
+      // Tambah sistem login: tabel users (Admin/Kasir/User) & snack_orders
+      // (pesanan snack self-order dari role User).
+      await db.execute(_createUsersTable);
+      await db.execute(_createSnackOrdersTable);
+      await db.transaction((txn) async {
+        await _seedDefaultUsers(txn);
       });
     }
   }
@@ -171,6 +185,37 @@ class DatabaseHelper {
       type            TEXT    NOT NULL DEFAULT 'earn',
       note            TEXT,
       created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    )
+  ''';
+
+  static const _createUsersTable = '''
+    CREATE TABLE ${AppConstants.tableUsers} (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      username      TEXT    NOT NULL UNIQUE,
+      password_hash TEXT    NOT NULL,
+      role          TEXT    NOT NULL DEFAULT 'user',
+      full_name     TEXT    NOT NULL,
+      phone         TEXT,
+      member_id     INTEGER REFERENCES ${AppConstants.tableMembers}(id),
+      is_active     INTEGER NOT NULL DEFAULT 1,
+      created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    )
+  ''';
+
+  static const _createSnackOrdersTable = '''
+    CREATE TABLE ${AppConstants.tableSnackOrders} (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_no       TEXT    NOT NULL UNIQUE,
+      user_id        INTEGER REFERENCES ${AppConstants.tableUsers}(id),
+      member_id      INTEGER REFERENCES ${AppConstants.tableMembers}(id),
+      customer_name  TEXT    NOT NULL,
+      items_json     TEXT    NOT NULL,
+      total_cost     INTEGER NOT NULL DEFAULT 0,
+      status         TEXT    NOT NULL DEFAULT 'pending',
+      notes          TEXT,
+      created_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
     )
   ''';
 
@@ -356,6 +401,30 @@ class DatabaseHelper {
     for (final s in snacks) {
       await txn.insert(AppConstants.tableSnacks, s);
     }
+  }
+
+  // ── Seed Default Users (Admin & Kasir) ────────────────────────────────────
+  /// Akun bawaan agar Admin/Kasir tetap bisa login setelah fitur auth
+  /// ditambahkan. SANGAT disarankan untuk ganti password ini dari menu
+  /// Pengaturan > Kelola Akun Staff setelah login pertama kali.
+  Future<void> _seedDefaultUsers(Transaction txn) async {
+    final now = DateTime.now().toIso8601String();
+    // Hanya 1 akun default: Admin
+    // Akun User dibuat oleh Admin dari menu Kelola Akun di Settings.
+    // GANTI PASSWORD INI setelah pertama kali login!
+    await txn.insert(
+      AppConstants.tableUsers,
+      {
+        'username': 'admin',
+        'password_hash': PasswordHasher.hash('admin123'),
+        'role': AppConstants.roleAdmin,
+        'full_name': 'Administrator',
+        'is_active': 1,
+        'created_at': now,
+        'updated_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   // ── Generic CRUD Helpers ───────────────────────────────────────────────────

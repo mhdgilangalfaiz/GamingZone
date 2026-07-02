@@ -8,7 +8,7 @@ class AppConstants {
 
   // ── Database ───────────────────────────────────────────────────────────────
   static const String dbName = 'gaming_zone.db';
-  static const int dbVersion = 2;
+  static const int dbVersion = 3;
 
   // ── Tables ─────────────────────────────────────────────────────────────────
   static const String tableConsoles = 'consoles';
@@ -18,6 +18,30 @@ class AppConstants {
   static const String tableSnacks = 'snacks';
   static const String tableSettings = 'settings';
   static const String tableMemberPoints = 'member_points';
+  static const String tableUsers = 'users';
+  static const String tableSnackOrders = 'snack_orders';
+
+  // ── User Roles ─────────────────────────────────────────────────────────────
+  static const String roleAdmin = 'admin';
+  static const String roleUser  = 'user';
+
+  // ── Transaction Status ─────────────────────────────────────────────────────
+  static const String statusRequested = 'requested'; // booking masuk dari User
+  static const String statusActive = 'active';
+  static const String statusCompleted = 'completed';
+  static const String statusCancelled = 'cancelled';
+
+  // ── Snack Order Status ─────────────────────────────────────────────────────
+  static const String orderPending = 'pending';
+  static const String orderCompleted = 'completed';
+  static const String orderCancelled = 'cancelled';
+
+  // ── Shared Preferences Keys (Auth) ────────────────────────────────────────
+  static const String prefLoggedInUserId = 'logged_in_user_id';
+
+  // ── Shared Preferences Keys (App Lock / PIN Dashboard) ────────────────────
+  static const String prefAppLockEnabled = 'app_lock_enabled';
+  static const String prefAppLockPinHash = 'app_lock_pin_hash';
 
   // ── Rental Types ───────────────────────────────────────────────────────────
   static const String rentalTypeRegular = 'Regular';

@@ -2,10 +2,22 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/pin_manager.dart';
+import '../auth/pin_lock_screen.dart';
 import '../main_navigation.dart';
 
 /// Splash screen yang tampil ±4 detik saat aplikasi pertama kali dibuka,
 /// menampilkan logo Gaming Zone sebelum masuk ke Dashboard.
+///
+/// Dashboard (MainNavigation) TIDAK memerlukan login akun sama sekali —
+/// login hanya diperlukan untuk fitur "Portal Pelanggan" yang diakses
+/// terpisah lewat tombol di Dashboard (lihat dashboard_screen.dart).
+///
+/// TAPI jika fitur "Kunci Dashboard" (PIN) sedang aktif — lihat
+/// pengaturan di SettingsScreen — splash akan mengarah ke PinLockScreen
+/// dulu sebelum Dashboard bisa dibuka, supaya data kasir (pendapatan,
+/// transaksi, dll) tidak langsung kelihatan oleh siapa pun yang membuka
+/// aplikasi.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -37,16 +49,41 @@ class _SplashScreenState extends State<SplashScreen>
     _ctrl.forward();
 
     // Total durasi splash screen: 4 detik (di antara 3-5 detik), lalu
-    // pindah otomatis ke halaman utama (Dashboard).
+    // pindah otomatis ke halaman utama (Dashboard) — tanpa login.
     _navTimer = Timer(const Duration(seconds: 4), _goToHome);
   }
 
-  void _goToHome() {
+  Future<void> _goToHome() async {
     if (!mounted) return;
+
+    final lockEnabled = await PinManager.isEnabled();
+    if (!mounted) return;
+
+    Widget destination;
+    if (lockEnabled) {
+      // Dashboard dikunci — minta PIN dulu, tidak boleh diskip (no back).
+      destination = PinLockScreen(
+        mode: PinLockMode.unlock,
+        canCancel: false,
+        onSuccess: (pinCtx) {
+          Navigator.of(pinCtx).pushReplacement(
+            PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 400),
+              pageBuilder: (_, anim, __) => const MainNavigation(),
+              transitionsBuilder: (_, anim, __, child) =>
+                  FadeTransition(opacity: anim, child: child),
+            ),
+          );
+        },
+      );
+    } else {
+      destination = const MainNavigation();
+    }
+
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 500),
-        pageBuilder: (_, anim, __) => const MainNavigation(),
+        pageBuilder: (_, anim, __) => destination,
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ),
@@ -67,7 +104,6 @@ class _SplashScreenState extends State<SplashScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Logo fullscreen menutupi seluruh layar
           FadeTransition(
             opacity: _fade,
             child: ScaleTransition(
@@ -80,7 +116,6 @@ class _SplashScreenState extends State<SplashScreen>
               ),
             ),
           ),
-          // Loading indicator kecil di bagian bawah
           Positioned(
             bottom: 56,
             left: 0,
