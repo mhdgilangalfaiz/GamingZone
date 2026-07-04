@@ -178,6 +178,7 @@ class TransactionModel {
   }
 
   bool get isActive => status == 'active';
+  bool get isConfirmed => status == 'confirmed';
   bool get isCompleted => status == 'completed';
   bool get isCancelled => status == 'cancelled';
 

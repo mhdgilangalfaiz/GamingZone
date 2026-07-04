@@ -10,10 +10,10 @@ import 'user_profile_screen.dart';
 class UserNavigation extends StatefulWidget {
   const UserNavigation({super.key});
   @override
-  State<UserNavigation> createState() => _UserNavigationState();
+  State<UserNavigation> createState() => UserNavigationState();
 }
 
-class _UserNavigationState extends State<UserNavigation> {
+class UserNavigationState extends State<UserNavigation> {
   int _currentIndex = 0;
 
   final List<Widget> _screens = const [
@@ -22,6 +22,12 @@ class _UserNavigationState extends State<UserNavigation> {
     UserSnackOrderScreen(),
     UserProfileScreen(),
   ];
+
+  /// Pindah tab dari luar, mis. dari tombol quick-action di Beranda:
+  /// `context.findAncestorStateOfType<UserNavigationState>()?.navigateTo(1)`
+  void navigateTo(int index) {
+    setState(() => _currentIndex = index);
+  }
 
   @override
   Widget build(BuildContext context) {

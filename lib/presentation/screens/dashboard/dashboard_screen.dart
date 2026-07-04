@@ -13,7 +13,6 @@ import '../../widgets/common/gz_widgets.dart';
 import '../../widgets/cards/console_card.dart';
 import '../snack/snack_screen.dart';
 import '../settings/settings_screen.dart';
-import '../auth/login_screen.dart';
 import '../main_navigation.dart';
 import '../rental/booking_requests_screen.dart';
 
@@ -40,11 +39,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context.read<TransactionProvider>().loadDashboard(),
     ]);
     context.read<OvertimeProvider>().startChecking();
-    // Hitung booking masuk dari User yang belum dikonfirmasi
+    // Hitung booking dari User yang butuh tindakan kasir: menunggu
+    // persetujuan (requested) ATAU sudah disetujui tapi belum check-in
+    // & bayar (confirmed).
     final rows = await DatabaseHelper.instance.query(
       AppConstants.tableTransactions,
-      where: 'status = ?',
-      whereArgs: [AppConstants.statusRequested],
+      where: 'status IN (?, ?)',
+      whereArgs: [AppConstants.statusRequested, AppConstants.statusConfirmed],
     );
     if (mounted) setState(() => _pendingBookings = rows.length);
   }
@@ -123,15 +124,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
           ],
-        ),
-        IconButton(
-          icon: const Icon(Icons.person_outline,
-              color: AppColors.textSecondary),
-          tooltip: 'Portal Pelanggan',
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-          ),
         ),
         IconButton(
           icon: const Icon(Icons.settings_outlined,

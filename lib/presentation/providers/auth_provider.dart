@@ -3,17 +3,22 @@ import 'package:flutter/foundation.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/user_repository.dart';
 
-/// AuthProvider — mengelola sesi login untuk fitur "Portal Pelanggan".
+/// AuthProvider — mengelola sesi login untuk SATU form login yang dipakai
+/// bersama oleh admin maupun user biasa (username & password dari tabel
+/// `users` yang sama).
 ///
-/// PENTING: Dashboard/kasir (MainNavigation) TIDAK memerlukan login sama
-/// sekali — aplikasi selalu terbuka langsung ke Dashboard tanpa role apa
-/// pun aktif (device toko/kasir sendiri, tidak perlu autentikasi).
+/// Halaman utama default aplikasi adalah Dashboard User (UserNavigation),
+/// bisa dibrowse tanpa login. Begitu ada aksi yang butuh akun (booking,
+/// order snack, buka tab Profil) atau admin mau masuk ke Dashboard
+/// Admin/Kasir, baru diarahkan ke LoginScreen.
 ///
-/// Login di sini hanya dipakai untuk "Portal Pelanggan" (booking & order
-/// snack mandiri oleh customer) yang diakses lewat tombol terpisah dari
-/// Dashboard. Sesi TIDAK disimpan permanen — setiap kali aplikasi dibuka
-/// ulang, tidak ada user yang login (sesuai desain: state selalu kosong
-/// saat splash screen).
+/// - Login sukses & role == 'admin' → Dashboard Admin/Kasir (MainNavigation)
+/// - Login sukses & role == 'user'  → tetap di Dashboard User, status jadi
+///   "sudah login"
+///
+/// Sesi TIDAK disimpan permanen — setiap kali aplikasi dibuka ulang, tidak
+/// ada user yang login (state selalu kosong saat splash screen), jadi
+/// admin harus login ulang tiap kali mau ke Dashboard Admin.
 class AuthProvider extends ChangeNotifier {
   final UserRepository _userRepo = UserRepository();
 

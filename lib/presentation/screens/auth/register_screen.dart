@@ -10,7 +10,6 @@ import '../../../data/repositories/member_snack_repository.dart';
 import '../../../data/repositories/user_repository.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common/gz_widgets.dart';
-import '../user/user_navigation.dart';
 
 /// Pendaftaran akun mandiri untuk pelanggan (role `user`).
 /// Tidak perlu dibuatkan Admin — siapa pun bisa daftar sendiri di sini.
@@ -96,7 +95,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!mounted) return;
 
-      // 3. Auto-login setelah daftar, langsung masuk ke Portal Pelanggan
+      // 3. Auto-login setelah daftar (role selalu 'user').
       final auth = context.read<AuthProvider>();
       final loggedIn = await auth.login(username, _passwordCtrl.text);
 
@@ -111,10 +110,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         return;
       }
 
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const UserNavigation()),
-        (route) => route.isFirst,
-      );
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
       if (!mounted) return;
       setState(() {

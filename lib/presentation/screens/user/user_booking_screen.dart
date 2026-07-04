@@ -10,6 +10,7 @@ import '../../../data/repositories/console_repository.dart';
 import '../../../data/repositories/transaction_repository.dart';
 import '../../../data/models/transaction_model.dart';
 import '../../providers/auth_provider.dart';
+import '../../utils/auth_guard.dart';
 import '../../widgets/common/gz_widgets.dart';
 
 class UserBookingScreen extends StatefulWidget {
@@ -69,11 +70,55 @@ class _UserBookingScreenState extends State<UserBookingScreen>
     }
   }
 
+  Future<void> _onConsoleTap(ConsoleModel console) async {
+    // Booking harus punya akun (biar riwayat & poin member ketauan
+    // punya siapa) — kalau belum login, arahkan ke form Masuk/Daftar
+    // dulu, baru lanjut ke form booking.
+    final ok = await ensureLoggedIn(context,
+        message: 'Masuk atau daftar akun dulu untuk booking konsol');
+    if (!ok || !mounted) return;
+    _showBookingDialog(console);
+  }
+
+  String _timeStr(TimeOfDay? t) => t == null
+      ? '--:--'
+      : '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  DateTime _toDateTime(TimeOfDay t) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day, t.hour, t.minute);
+  }
+
+  int _durationMinutesOf(TimeOfDay? start, TimeOfDay? end) {
+    if (start == null || end == null) return 0;
+    final s = start.hour * 60 + start.minute;
+    final e = end.hour * 60 + end.minute;
+    final diff = e - s;
+    return diff > 0 ? diff : diff + 1440; // lewat tengah malam
+  }
+
+  Future<TimeOfDay?> _pickTime(BuildContext ctx, TimeOfDay initial) {
+    return showTimePicker(
+      context: ctx,
+      initialTime: initial,
+      builder: (c, child) => Theme(
+        data: ThemeData.dark().copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: AppColors.primary,
+            surface: AppColors.surface,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+  }
+
   void _showBookingDialog(ConsoleModel console) {
     String selectedType = console.isVipOnly
         ? AppConstants.rentalTypeVIP
         : AppConstants.rentalTypeRegular;
-    int durationHours = 1;
+    TimeOfDay? startTime;
+    TimeOfDay? endTime;
 
     showModalBottomSheet(
       context: context,
@@ -87,164 +132,209 @@ class _UserBookingScreenState extends State<UserBookingScreen>
           final price = selectedType == AppConstants.rentalTypeVIP
               ? console.priceVip
               : console.pricePerHour;
-          final total = price * durationHours;
+          final durationMinutes = _durationMinutesOf(startTime, endTime);
+          final total =
+              durationMinutes > 0 ? (price * durationMinutes / 60).ceil() : 0;
 
           return Padding(
             padding: EdgeInsets.fromLTRB(
                 20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Handle
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.cardBorder,
-                      borderRadius: BorderRadius.circular(2),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBorder,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Text('Booking ${console.name}',
-                    style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary)),
-                const SizedBox(height: 16),
-
-                // Kategori
-                Text('Kategori',
-                    style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                Row(
-                  children: (console.isVipOnly
-                          ? [AppConstants.rentalTypeVIP]
-                          : [AppConstants.rentalTypeRegular, AppConstants.rentalTypeVIP])
-                      .map((type) {
-                    final sel = selectedType == type;
-                    final isVip = type == AppConstants.rentalTypeVIP;
-                    final color = isVip ? AppColors.warning : AppColors.primary;
-                    return Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: GestureDetector(
-                          onTap: () => setModal(() => selectedType = type),
-                          child: AnimatedContainer(
-                            duration: AppConstants.animFast,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: sel
-                                  ? color.withOpacity(0.15)
-                                  : AppColors.surfaceLight,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: sel ? color : AppColors.cardBorder),
-                            ),
-                            child: Column(
-                              children: [
-                                Icon(isVip ? Icons.ac_unit : Icons.wb_sunny_outlined,
-                                    color: sel ? color : AppColors.textMuted,
-                                    size: 18),
-                                const SizedBox(height: 4),
-                                Text(isVip ? 'VIP' : 'Reguler',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: sel ? FontWeight.w700 : FontWeight.w400,
-                                        color: sel ? color : AppColors.textSecondary)),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 16),
-
-                // Durasi
-                Text('Estimasi Durasi (jam)',
-                    style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [1, 2, 3, 4].map((h) {
-                    final sel = durationHours == h;
-                    return Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: GestureDetector(
-                          onTap: () => setModal(() => durationHours = h),
-                          child: AnimatedContainer(
-                            duration: AppConstants.animFast,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: sel
-                                  ? AppColors.primary.withOpacity(0.15)
-                                  : AppColors.surfaceLight,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: sel ? AppColors.primary : AppColors.cardBorder),
-                            ),
-                            child: Text('${h}h',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    fontWeight: sel ? FontWeight.w700 : FontWeight.w400,
-                                    color: sel ? AppColors.primary : AppColors.textSecondary)),
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 16),
-
-                // Ringkasan
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceLight,
-                    borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 16),
+                  Text('Booking ${console.name}',
+                      style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Atur jam main kamu sendiri — kasir akan tahu persis kapan sesi ini mulai & selesai.',
+                    style:
+                        TextStyle(fontSize: 12, color: AppColors.textMuted),
                   ),
-                  child: Column(
+                  const SizedBox(height: 16),
+
+                  // Kategori
+                  Text('Kategori',
+                      style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: (console.isVipOnly
+                            ? [AppConstants.rentalTypeVIP]
+                            : [
+                                AppConstants.rentalTypeRegular,
+                                AppConstants.rentalTypeVIP
+                              ])
+                        .map((type) {
+                      final sel = selectedType == type;
+                      final isVip = type == AppConstants.rentalTypeVIP;
+                      final color =
+                          isVip ? AppColors.warning : AppColors.primary;
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: GestureDetector(
+                            onTap: () => setModal(() => selectedType = type),
+                            child: AnimatedContainer(
+                              duration: AppConstants.animFast,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: sel
+                                    ? color.withOpacity(0.15)
+                                    : AppColors.surfaceLight,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                    color: sel ? color : AppColors.cardBorder),
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                      isVip
+                                          ? Icons.ac_unit
+                                          : Icons.wb_sunny_outlined,
+                                      color:
+                                          sel ? color : AppColors.textMuted,
+                                      size: 18),
+                                  const SizedBox(height: 4),
+                                  Text(isVip ? 'VIP' : 'Reguler',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: sel
+                                              ? FontWeight.w700
+                                              : FontWeight.w400,
+                                          color: sel
+                                              ? color
+                                              : AppColors.textSecondary)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Jam main (manual, sama seperti pengaturan waktu kasir)
+                  Text('Atur Jam Main',
+                      style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
                     children: [
-                      _summaryRow('Kategori', selectedType),
-                      const SizedBox(height: 6),
-                      _summaryRow('Harga/jam', CurrencyFormatter.toRupiah(price)),
-                      const SizedBox(height: 6),
-                      _summaryRow('Durasi', '$durationHours jam'),
-                      const GZDivider(margin: EdgeInsets.symmetric(vertical: 8)),
-                      _summaryRow('Estimasi Total', CurrencyFormatter.toRupiah(total),
-                          bold: true, color: AppColors.accent),
+                      Expanded(
+                        child: _timePickerCard(
+                          label: 'Jam Mulai',
+                          time: startTime,
+                          isStart: true,
+                          onTap: () async {
+                            final picked = await _pickTime(
+                                ctx, startTime ?? TimeOfDay.now());
+                            if (picked != null) {
+                              setModal(() => startTime = picked);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _timePickerCard(
+                          label: 'Jam Selesai',
+                          time: endTime,
+                          isStart: false,
+                          onTap: () async {
+                            final picked = await _pickTime(
+                                ctx, endTime ?? TimeOfDay.now());
+                            if (picked != null) {
+                              setModal(() => endTime = picked);
+                            }
+                          },
+                        ),
+                      ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                GZButton(
-                  label: 'Kirim Permintaan Booking',
-                  icon: Icons.calendar_today_outlined,
-                  width: double.infinity,
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    await _sendBookingRequest(console, selectedType, durationHours, total);
-                  },
-                ),
-                const SizedBox(height: 8),
-                Center(
-                  child: Text(
-                    '* Booking akan dikonfirmasi oleh kasir',
-                    style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                  // Ringkasan
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceLight,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        _summaryRow('Kategori', selectedType),
+                        const SizedBox(height: 6),
+                        _summaryRow(
+                            'Harga/jam', CurrencyFormatter.toRupiah(price)),
+                        const SizedBox(height: 6),
+                        _summaryRow(
+                          'Durasi',
+                          durationMinutes > 0
+                              ? '${(durationMinutes / 60).toStringAsFixed(durationMinutes % 60 == 0 ? 0 : 1)} jam'
+                              : '--',
+                        ),
+                        const GZDivider(margin: EdgeInsets.symmetric(vertical: 8)),
+                        _summaryRow(
+                            'Estimasi Total', CurrencyFormatter.toRupiah(total),
+                            bold: true, color: AppColors.accent),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+
+                  GZButton(
+                    label: 'Kirim Permintaan Booking',
+                    icon: Icons.calendar_today_outlined,
+                    width: double.infinity,
+                    onPressed: durationMinutes > 0
+                        ? () async {
+                            Navigator.pop(ctx);
+                            await _sendBookingRequest(
+                              console,
+                              selectedType,
+                              startTime!,
+                              endTime!,
+                              durationMinutes,
+                              total,
+                            );
+                          }
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: Text(
+                      durationMinutes > 0
+                          ? '* Booking akan dikonfirmasi oleh kasir'
+                          : '* Pilih jam mulai & jam selesai dulu',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textMuted),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         },
@@ -252,11 +342,64 @@ class _UserBookingScreenState extends State<UserBookingScreen>
     );
   }
 
-  Future<void> _sendBookingRequest(ConsoleModel console, String type, int hours, int total) async {
+  Widget _timePickerCard({
+    required String label,
+    required TimeOfDay? time,
+    required bool isStart,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: GZCard(
+        borderColor: time != null
+            ? AppColors.primary.withOpacity(0.4)
+            : AppColors.cardBorder,
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Icon(
+              isStart ? Icons.play_circle_outline : Icons.stop_circle_outlined,
+              color: time != null ? AppColors.primary : AppColors.textMuted,
+              size: 24,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _timeStr(time),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color:
+                    time != null ? AppColors.textPrimary : AppColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendBookingRequest(
+    ConsoleModel console,
+    String type,
+    TimeOfDay startTime,
+    TimeOfDay endTime,
+    int durationMinutes,
+    int total,
+  ) async {
     final auth = context.read<AuthProvider>();
     final repo = TransactionRepository();
     final invoiceNo = await repo.generateInvoiceNo();
     final now = DateTime.now();
+    final startDt = _toDateTime(startTime);
+    var endDt = _toDateTime(endTime);
+    if (!endDt.isAfter(startDt)) {
+      // Waktu selesai lebih kecil dari mulai → dianggap lewat tengah malam.
+      endDt = endDt.add(const Duration(days: 1));
+    }
 
     final tx = TransactionModel(
       invoiceNo: invoiceNo,
@@ -264,8 +407,9 @@ class _UserBookingScreenState extends State<UserBookingScreen>
       consoleName: console.name,
       memberId: auth.currentUser?.memberId,
       rentalType: type,
-      startTime: now,
-      durationMinutes: hours * 60,
+      startTime: startDt,
+      endTime: endDt,
+      durationMinutes: durationMinutes,
       rentalCost: total,
       totalCost: total,
       status: AppConstants.statusRequested,
@@ -280,7 +424,8 @@ class _UserBookingScreenState extends State<UserBookingScreen>
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Permintaan booking berhasil dikirim! Tunggu konfirmasi kasir.'),
+          content: const Text(
+              'Permintaan booking berhasil dikirim! Tunggu konfirmasi kasir, lalu datang & bayar sebelum jam mainmu dimulai.'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
         ),
@@ -381,7 +526,7 @@ class _UserBookingScreenState extends State<UserBookingScreen>
     final statusColor = _statusColor(c.status);
 
     return GZCard(
-      onTap: available ? () => _showBookingDialog(c) : null,
+      onTap: available ? () => _onConsoleTap(c) : null,
       borderColor: available ? AppColors.success.withOpacity(0.3) : AppColors.cardBorder,
       child: Row(
         children: [

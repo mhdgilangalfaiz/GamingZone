@@ -27,6 +27,7 @@ class AppConstants {
 
   // ── Transaction Status ─────────────────────────────────────────────────────
   static const String statusRequested = 'requested'; // booking masuk dari User
+  static const String statusConfirmed = 'confirmed'; // disetujui admin, menunggu user check-in & bayar
   static const String statusActive = 'active';
   static const String statusCompleted = 'completed';
   static const String statusCancelled = 'cancelled';
@@ -38,10 +39,6 @@ class AppConstants {
 
   // ── Shared Preferences Keys (Auth) ────────────────────────────────────────
   static const String prefLoggedInUserId = 'logged_in_user_id';
-
-  // ── Shared Preferences Keys (App Lock / PIN Dashboard) ────────────────────
-  static const String prefAppLockEnabled = 'app_lock_enabled';
-  static const String prefAppLockPinHash = 'app_lock_pin_hash';
 
   // ── Rental Types ───────────────────────────────────────────────────────────
   static const String rentalTypeRegular = 'Regular';

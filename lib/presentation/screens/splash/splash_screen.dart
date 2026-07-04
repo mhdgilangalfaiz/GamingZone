@@ -2,22 +2,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../../../core/utils/pin_manager.dart';
-import '../auth/pin_lock_screen.dart';
-import '../main_navigation.dart';
+import '../user/user_navigation.dart';
 
 /// Splash screen yang tampil ±4 detik saat aplikasi pertama kali dibuka,
-/// menampilkan logo Gaming Zone sebelum masuk ke Dashboard.
+/// menampilkan logo Gaming Zone sebelum masuk ke aplikasi.
 ///
-/// Dashboard (MainNavigation) TIDAK memerlukan login akun sama sekali —
-/// login hanya diperlukan untuk fitur "Portal Pelanggan" yang diakses
-/// terpisah lewat tombol di Dashboard (lihat dashboard_screen.dart).
-///
-/// TAPI jika fitur "Kunci Dashboard" (PIN) sedang aktif — lihat
-/// pengaturan di SettingsScreen — splash akan mengarah ke PinLockScreen
-/// dulu sebelum Dashboard bisa dibuka, supaya data kasir (pendapatan,
-/// transaksi, dll) tidak langsung kelihatan oleh siapa pun yang membuka
+/// PENTING: Halaman utama default untuk SEMUA orang (baik pengunjung baru
+/// maupun admin) adalah UserNavigation (Dashboard User / Portal Pelanggan)
+/// — BUKAN Dashboard Admin/Kasir. Ini supaya data kasir (pendapatan,
+/// transaksi, dll) tidak langsung terlihat oleh siapa pun yang buka
 /// aplikasi.
+///
+/// Dashboard Admin/Kasir (MainNavigation) hanya bisa diakses lewat
+/// LoginScreen dengan akun berrole 'admin' yang sudah ada di database
+/// (lihat tombol "Masuk" di tab Profil / saat mencoba booking).
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -49,41 +47,16 @@ class _SplashScreenState extends State<SplashScreen>
     _ctrl.forward();
 
     // Total durasi splash screen: 4 detik (di antara 3-5 detik), lalu
-    // pindah otomatis ke halaman utama (Dashboard) — tanpa login.
+    // pindah otomatis ke Dashboard User — tanpa login.
     _navTimer = Timer(const Duration(seconds: 4), _goToHome);
   }
 
-  Future<void> _goToHome() async {
+  void _goToHome() {
     if (!mounted) return;
-
-    final lockEnabled = await PinManager.isEnabled();
-    if (!mounted) return;
-
-    Widget destination;
-    if (lockEnabled) {
-      // Dashboard dikunci — minta PIN dulu, tidak boleh diskip (no back).
-      destination = PinLockScreen(
-        mode: PinLockMode.unlock,
-        canCancel: false,
-        onSuccess: (pinCtx) {
-          Navigator.of(pinCtx).pushReplacement(
-            PageRouteBuilder(
-              transitionDuration: const Duration(milliseconds: 400),
-              pageBuilder: (_, anim, __) => const MainNavigation(),
-              transitionsBuilder: (_, anim, __, child) =>
-                  FadeTransition(opacity: anim, child: child),
-            ),
-          );
-        },
-      );
-    } else {
-      destination = const MainNavigation();
-    }
-
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 500),
-        pageBuilder: (_, anim, __) => destination,
+        pageBuilder: (_, anim, __) => const UserNavigation(),
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ),

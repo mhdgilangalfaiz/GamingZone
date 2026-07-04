@@ -6,9 +6,15 @@ import '../../../core/constants/app_constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common/gz_widgets.dart';
 import '../main_navigation.dart';
-import '../user/user_navigation.dart';
 import 'register_screen.dart';
 
+/// Form login TUNGGAL untuk admin maupun user — memakai username &
+/// password yang sama-sama tersimpan di tabel `users` pada database.
+///
+/// - Kalau akun yang login ber-role 'admin' → diarahkan ke Dashboard
+///   Admin/Kasir (MainNavigation).
+/// - Kalau ber-role 'user' → tetap di Dashboard User (UserNavigation),
+///   cuma statusnya jadi "sudah login".
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -52,17 +58,22 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final destination = auth.isAdmin
-        ? const MainNavigation()
-        : const UserNavigation();
-
-    // Dashboard (MainNavigation) tetap jadi root paling bawah — login di
-    // sini cuma "menumpuk" Portal Pelanggan di atasnya, supaya logout bisa
-    // kembali ke Dashboard tanpa perlu login lagi.
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => destination),
-      (route) => route.isFirst,
-    );
+    if (auth.isAdmin) {
+      // Admin → buka Dashboard Admin/Kasir di atas Dashboard User (root).
+      // Root TIDAK dihapus, supaya saat admin logout, aplikasi kembali ke
+      // tampilan User (bukan keluar aplikasi / layar kosong).
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const MainNavigation()),
+        (route) => route.isFirst,
+      );
+    } else {
+      // User biasa → tidak perlu buka layar baru. Root (UserNavigation)
+      // sudah menampilkan Dashboard User; begitu LoginScreen ditutup,
+      // layar itu otomatis ter-update (AuthProvider notifyListeners)
+      // menampilkan status sudah login — termasuk kalau tadinya user
+      // datang dari alur "mau booking, harus masuk dulu".
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
   }
 
   @override

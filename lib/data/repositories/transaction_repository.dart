@@ -152,6 +152,45 @@ class TransactionRepository {
     });
   }
 
+  // ── Check-in Booking (bayar & mulai sesi) ───────────────────────────────
+  /// Dipanggil saat user yang booking-nya sudah di-approve datang ke toko.
+  /// Di sinilah pembayaran benar-benar dikumpulkan — jam mulai/selesai
+  /// direset ke SEKARANG (durasi tetap sama seperti yang diminta user),
+  /// supaya sesi bermain dihitung dari saat mereka benar-benar mulai main.
+  Future<void> checkinBooking({
+    required int transactionId,
+    required int consoleId,
+    required int durationMinutes,
+    required String paymentMethod,
+    required int paymentAmount,
+    required int changeAmount,
+  }) async {
+    final now = DateTime.now();
+    final endTime = now.add(Duration(minutes: durationMinutes));
+    await _db.transaction((txn) async {
+      await txn.update(
+        AppConstants.tableTransactions,
+        {
+          'start_time': now.toIso8601String(),
+          'end_time': endTime.toIso8601String(),
+          'status': 'active',
+          'payment_method': paymentMethod,
+          'payment_amount': paymentAmount,
+          'change_amount': changeAmount,
+          'updated_at': now.toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [transactionId],
+      );
+      await txn.update(
+        AppConstants.tableConsoles,
+        {'status': 'playing', 'updated_at': now.toIso8601String()},
+        where: 'id = ?',
+        whereArgs: [consoleId],
+      );
+    });
+  }
+
   // ── Cancel Rental ──────────────────────────────────────────────────────────
   Future<void> cancelRental(int transactionId, int consoleId) async {
     await _db.transaction((txn) async {

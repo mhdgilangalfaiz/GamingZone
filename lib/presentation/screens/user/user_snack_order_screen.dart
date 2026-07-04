@@ -9,6 +9,7 @@ import '../../../data/models/snack_order_model.dart';
 import '../../../data/repositories/member_snack_repository.dart';
 import '../../../data/repositories/snack_order_repository.dart';
 import '../../providers/auth_provider.dart';
+import '../../utils/auth_guard.dart';
 import '../../widgets/common/gz_widgets.dart';
 
 class UserSnackOrderScreen extends StatefulWidget {
@@ -70,6 +71,12 @@ class _UserSnackOrderScreenState extends State<UserSnackOrderScreen> {
 
   Future<void> _placeOrder() async {
     if (_cart.isEmpty) return;
+
+    // Order harus punya akun juga, biar tau pesanan ini punya siapa.
+    final ok = await ensureLoggedIn(context,
+        message: 'Masuk atau daftar akun dulu untuk order');
+    if (!ok || !mounted) return;
+
     setState(() => _ordering = true);
     try {
       final auth = context.read<AuthProvider>();

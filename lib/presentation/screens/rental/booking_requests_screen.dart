@@ -6,64 +6,96 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../data/models/transaction_model.dart';
-import '../../../data/repositories/transaction_repository.dart';
 import '../../widgets/common/gz_widgets.dart';
+import 'checkin_payment_screen.dart';
 
+/// Layar untuk kasir mengelola booking yang masuk dari aplikasi User.
+///
+/// Alurnya 2 tahap:
+/// 1. "Menunggu Persetujuan" (status=requested) — kasir Setujui/Tolak.
+///    Setujui HANYA mengunci jadwal & konsol (jadi 'confirmed' /
+///    'reserved'), BELUM ada pembayaran.
+/// 2. "Menunggu Check-in" (status=confirmed) — begitu user datang ke
+///    toko, kasir tap "Check-in & Bayar" untuk memproses pembayaran &
+///    memulai sesi (baru di sinilah tagihan/struk dibuat).
 class BookingRequestsScreen extends StatefulWidget {
   const BookingRequestsScreen({super.key});
   @override
   State<BookingRequestsScreen> createState() => _BookingRequestsScreenState();
 }
 
-class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
+class _BookingRequestsScreenState extends State<BookingRequestsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
   List<TransactionModel> _requests = [];
+  List<TransactionModel> _confirmed = [];
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final rows = await DatabaseHelper.instance.query(
+    final requestedRows = await DatabaseHelper.instance.query(
       AppConstants.tableTransactions,
-      where: "status = ?",
+      where: 'status = ?',
       whereArgs: [AppConstants.statusRequested],
       orderBy: 'created_at ASC',
     );
-    _requests = rows.map(TransactionModel.fromMap).toList();
+    final confirmedRows = await DatabaseHelper.instance.query(
+      AppConstants.tableTransactions,
+      where: 'status = ?',
+      whereArgs: [AppConstants.statusConfirmed],
+      orderBy: 'start_time ASC',
+    );
+    _requests = requestedRows.map(TransactionModel.fromMap).toList();
+    _confirmed = confirmedRows.map(TransactionModel.fromMap).toList();
     if (mounted) setState(() => _loading = false);
   }
 
+  // ── Tahap 1: Setujui / Tolak ──────────────────────────────────────────────
   Future<void> _approve(TransactionModel tx) async {
+    final timeLabel = tx.endTime != null
+        ? '${DateFormat('HH:mm', 'id_ID').format(tx.startTime)}–${DateFormat('HH:mm', 'id_ID').format(tx.endTime!)}'
+        : DateFormat('HH:mm', 'id_ID').format(tx.startTime);
     final confirm = await _showConfirmDialog(
       title: 'Konfirmasi Booking',
       message:
-          'Setujui booking ${tx.consoleName} dari ${tx.cashierName}?\nKonsol akan langsung aktif.',
+          'Setujui booking ${tx.consoleName} dari ${tx.cashierName} untuk jam $timeLabel?\nKonsol akan direservasi untuk user ini — pembayaran diminta saat mereka check-in.',
       confirmLabel: 'Setujui',
       confirmColor: AppColors.success,
     );
     if (!confirm) return;
 
-    final repo = TransactionRepository();
-    // Ubah status jadi active dan set startTime ke sekarang
+    // Status jadi 'confirmed' — BELUM 'active', karena belum ada
+    // pembayaran. Jam mulai/selesai TETAP dipakai persis seperti yang
+    // diatur user saat booking, biar kasir tahu jadwalnya.
     await DatabaseHelper.instance.update(
       AppConstants.tableTransactions,
       {
-        'status': AppConstants.statusActive,
-        'start_time': DateTime.now().toIso8601String(),
+        'status': AppConstants.statusConfirmed,
         'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [tx.id],
     );
-    // Set konsol jadi playing
+    // Konsol jadi 'reserved' (dikunci untuk booking ini, belum 'playing'
+    // karena sesi belum dimulai/dibayar).
     if (tx.consoleId != null) {
       await DatabaseHelper.instance.update(
         AppConstants.tableConsoles,
-        {'status': 'playing'},
+        {'status': AppConstants.statusReserved},
         where: 'id = ?',
         whereArgs: [tx.consoleId],
       );
@@ -72,7 +104,8 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Booking ${tx.consoleName} disetujui ✓'),
+          content: Text(
+              'Booking ${tx.consoleName} disetujui — menunggu user check-in ✓'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
         ),
@@ -104,6 +137,55 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Booking ditolak'),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _load();
+    }
+  }
+
+  // ── Tahap 2: Check-in & Bayar / Batalkan ──────────────────────────────────
+  Future<void> _goToCheckin(TransactionModel tx) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => CheckinPaymentScreen(booking: tx)),
+    );
+    if (result == true) _load();
+  }
+
+  Future<void> _cancelConfirmed(TransactionModel tx) async {
+    final confirm = await _showConfirmDialog(
+      title: 'Batalkan Booking',
+      message:
+          'Batalkan booking ${tx.consoleName} dari ${tx.cashierName}? Konsol akan tersedia lagi.',
+      confirmLabel: 'Batalkan',
+      confirmColor: AppColors.danger,
+    );
+    if (!confirm) return;
+
+    await DatabaseHelper.instance.update(
+      AppConstants.tableTransactions,
+      {
+        'status': AppConstants.statusCancelled,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [tx.id],
+    );
+    if (tx.consoleId != null) {
+      await DatabaseHelper.instance.update(
+        AppConstants.tableConsoles,
+        {'status': AppConstants.statusAvailable},
+        where: 'id = ?',
+        whereArgs: [tx.consoleId],
+      );
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Booking dibatalkan, konsol tersedia lagi'),
           backgroundColor: AppColors.danger,
           behavior: SnackBarBehavior.floating,
         ),
@@ -151,63 +233,77 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Row(
-          children: [
-            const Text('Booking Masuk'),
-            if (_requests.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.warning,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '${_requests.length}',
-                  style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black),
-                ),
-              ),
-            ],
+        title: const Text('Booking dari User'),
+        backgroundColor: AppColors.background,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppColors.primary,
+          labelColor: AppColors.primary,
+          unselectedLabelColor: AppColors.textMuted,
+          tabs: [
+            Tab(text: 'Persetujuan (${_requests.length})'),
+            Tab(text: 'Check-in (${_confirmed.length})'),
           ],
         ),
-        backgroundColor: AppColors.background,
       ),
       body: _loading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.primary))
-          : RefreshIndicator(
-              onRefresh: _load,
-              color: AppColors.primary,
-              child: _requests.isEmpty
-                  ? const GZEmpty(
-                      message: 'Tidak ada booking masuk saat ini',
-                      icon: Icons.calendar_today_outlined,
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _requests.length,
-                      separatorBuilder: (_, __) =>
-                          const SizedBox(height: 12),
-                      itemBuilder: (_, i) => _buildCard(_requests[i]),
-                    ),
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildRequestsTab(),
+                _buildConfirmedTab(),
+              ],
             ),
     );
   }
 
-  Widget _buildCard(TransactionModel tx) {
-    final date = DateFormat('dd MMM yyyy, HH:mm', 'id_ID')
-        .format(tx.createdAt);
+  Widget _buildRequestsTab() {
+    return RefreshIndicator(
+      onRefresh: _load,
+      color: AppColors.primary,
+      child: _requests.isEmpty
+          ? const GZEmpty(
+              message: 'Tidak ada booking yang menunggu persetujuan',
+              icon: Icons.calendar_today_outlined,
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: _requests.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (_, i) => _buildRequestCard(_requests[i]),
+            ),
+    );
+  }
+
+  Widget _buildConfirmedTab() {
+    return RefreshIndicator(
+      onRefresh: _load,
+      color: AppColors.primary,
+      child: _confirmed.isEmpty
+          ? const GZEmpty(
+              message: 'Tidak ada booking yang menunggu check-in',
+              icon: Icons.how_to_reg_outlined,
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: _confirmed.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (_, i) => _buildConfirmedCard(_confirmed[i]),
+            ),
+    );
+  }
+
+  Widget _buildRequestCard(TransactionModel tx) {
+    final date =
+        DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(tx.createdAt);
 
     return GZCard(
       borderColor: AppColors.warning.withOpacity(0.4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
               Container(
@@ -243,13 +339,18 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
             ],
           ),
           const GZDivider(),
-
-          // Detail
           _detailRow(Icons.category_outlined, 'Kategori',
               tx.rentalType ?? '-'),
           const SizedBox(height: 6),
-          _detailRow(Icons.schedule_outlined, 'Durasi',
-              '${(tx.durationMinutes ?? 0)} menit'),
+          _detailRow(
+            Icons.schedule_outlined,
+            'Jam Main',
+            tx.endTime != null
+                ? '${DateFormat('HH:mm', 'id_ID').format(tx.startTime)} – '
+                    '${DateFormat('HH:mm', 'id_ID').format(tx.endTime!)} '
+                    '(${(tx.durationMinutes ?? 0)} menit)'
+                : '${(tx.durationMinutes ?? 0)} menit',
+          ),
           const SizedBox(height: 6),
           _detailRow(Icons.payments_outlined, 'Estimasi',
               CurrencyFormatter.toRupiah(tx.totalCost)),
@@ -260,8 +361,6 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
             _detailRow(Icons.notes_outlined, 'Catatan', tx.notes!),
           ],
           const GZDivider(),
-
-          // Tombol aksi
           Row(
             children: [
               Expanded(
@@ -285,6 +384,99 @@ class _BookingRequestsScreenState extends State<BookingRequestsScreen> {
                   label: const Text('Setujui'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.success,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConfirmedCard(TransactionModel tx) {
+    return GZCard(
+      borderColor: AppColors.primary.withOpacity(0.4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.event_available_outlined,
+                    color: AppColors.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(tx.consoleName ?? '-',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: AppColors.textPrimary)),
+                    const SizedBox(height: 2),
+                    Text('Dari: ${tx.cashierName ?? 'User'}',
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textMuted)),
+                  ],
+                ),
+              ),
+              GZBadge(
+                  label: 'Terjadwal',
+                  color: AppColors.primary,
+                  fontSize: 10),
+            ],
+          ),
+          const GZDivider(),
+          _detailRow(Icons.category_outlined, 'Kategori',
+              tx.rentalType ?? '-'),
+          const SizedBox(height: 6),
+          _detailRow(
+            Icons.schedule_outlined,
+            'Jam Main',
+            tx.endTime != null
+                ? '${DateFormat('HH:mm', 'id_ID').format(tx.startTime)} – '
+                    '${DateFormat('HH:mm', 'id_ID').format(tx.endTime!)} '
+                    '(${(tx.durationMinutes ?? 0)} menit)'
+                : '${(tx.durationMinutes ?? 0)} menit',
+          ),
+          const SizedBox(height: 6),
+          _detailRow(Icons.payments_outlined, 'Perlu Dibayar',
+              CurrencyFormatter.toRupiah(tx.totalCost)),
+          const GZDivider(),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _cancelConfirmed(tx),
+                  icon: const Icon(Icons.close, size: 16),
+                  label: const Text('Batalkan'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.danger,
+                    side: const BorderSide(color: AppColors.danger),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _goToCheckin(tx),
+                  icon: const Icon(Icons.point_of_sale_outlined, size: 16),
+                  label: const Text('Check-in & Bayar'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),

@@ -6,11 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/currency_formatter.dart';
-import '../../../core/utils/pin_manager.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common/gz_widgets.dart';
-import '../auth/pin_lock_screen.dart';
-import '../main_navigation.dart';
 import 'manage_accounts_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -30,7 +27,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _pointRedeemCtrl = TextEditingController(text: '10000');
 
   bool _taxEnabled = false;
-  bool _lockEnabled = false;
   bool _isLoading = false;
   bool _isSaving = false;
 
@@ -60,8 +56,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () async {
               Navigator.pop(context);
               context.read<AuthProvider>().logout();
-              // Kembali ke Dashboard — tidak perlu login lagi untuk pakai
-              // aplikasi kasir, login hanya untuk Portal Pelanggan.
+              // Turun ke root (Dashboard User) — Dashboard Admin cuma
+              // "menumpuk" di atas root, jadi logout tinggal turun ke root.
               Navigator.of(context).popUntil((route) => route.isFirst);
             },
             child: const Text('Keluar',
@@ -73,108 +69,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ── Kunci Dashboard (PIN) ───────────────────────────────────────────────
-  Future<void> _onToggleLock(bool value) async {
-    if (value) {
-      // Aktifkan → minta buat PIN baru dulu.
-      await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PinLockScreen(
-            mode: PinLockMode.setup,
-            onSuccess: (ctx) => Navigator.pop(ctx, true),
-          ),
-        ),
-      );
-      final enabled = await PinManager.isEnabled();
-      if (mounted) setState(() => _lockEnabled = enabled);
-      if (enabled && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Kunci Dashboard diaktifkan'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } else {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          backgroundColor: AppColors.surface,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Matikan Kunci PIN?',
-              style: TextStyle(color: AppColors.textPrimary)),
-          content: const Text(
-              'Dashboard akan langsung terbuka tanpa PIN setiap kali aplikasi dibuka.',
-              style: TextStyle(color: AppColors.textSecondary)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Batal',
-                  style: TextStyle(color: AppColors.textMuted)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Matikan',
-                  style: TextStyle(
-                      color: AppColors.danger, fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
-      );
-      if (confirm == true) {
-        await PinManager.disable();
-        if (mounted) setState(() => _lockEnabled = false);
-      }
-    }
-  }
-
-  Future<void> _onChangePin() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PinLockScreen(
-          mode: PinLockMode.change,
-          onSuccess: (ctx) => Navigator.pop(ctx),
-        ),
-      ),
-    );
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('PIN berhasil diubah'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    }
-  }
-
-  void _onLockNow() {
-    // Langsung minta PIN & bersihkan semua halaman di atasnya, sehingga
-    // Dashboard tidak bisa diakses (misal lewat tombol back) sampai PIN
-    // dimasukkan lagi. Berguna sebelum menyerahkan HP ke pelanggan.
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => PinLockScreen(
-          mode: PinLockMode.unlock,
-          canCancel: false,
-          onSuccess: (ctx) => Navigator.of(ctx).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const MainNavigation()),
-            (route) => false,
-          ),
-        ),
-      ),
-      (route) => false,
-    );
-  }
-
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     final prefs = await SharedPreferences.getInstance();
-    final lockEnabled = await PinManager.isEnabled();
     setState(() {
-      _lockEnabled = lockEnabled;
       _storeNameCtrl.text =
           prefs.getString(AppConstants.prefStoreName) ?? 'Gaming Zone';
       _ownerNameCtrl.text = prefs.getString(AppConstants.prefOwnerName) ?? '';
@@ -469,74 +367,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       );
                     },
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSection(
-                    title: 'Keamanan Aplikasi',
-                    icon: Icons.lock_outline_rounded,
-                    color: AppColors.danger,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Kunci Dashboard dengan PIN',
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium,
-                                ),
-                                Text(
-                                  'Minta PIN setiap kali aplikasi dibuka, sebelum Dashboard terlihat',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Switch(
-                            value: _lockEnabled,
-                            onChanged: _onToggleLock,
-                          ),
-                        ],
-                      ),
-                      if (_lockEnabled) ...[
-                        const GZDivider(),
-                        GestureDetector(
-                          onTap: _onChangePin,
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.pin_outlined,
-                                  color: AppColors.primary, size: 18),
-                              SizedBox(width: 8),
-                              Text('Ubah PIN',
-                                  style: TextStyle(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14)),
-                            ],
-                          ),
-                        ),
-                        const GZDivider(),
-                        GestureDetector(
-                          onTap: _onLockNow,
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.lock_clock_outlined,
-                                  color: AppColors.warning, size: 18),
-                              SizedBox(width: 8),
-                              Text('Kunci Sekarang',
-                                  style: TextStyle(
-                                      color: AppColors.warning,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
                   ),
                   const SizedBox(height: 16),
                   _buildSection(
